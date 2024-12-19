@@ -1,6 +1,6 @@
 ;; Pegify: Bitcoin-backed Stablecoin Platform
 ;; Author: Pegify Team
-;; Version: 1.0.0
+;; Version: 1.0.1
 
 ;; Constants
 (define-constant CONTRACT-OWNER tx-sender)
@@ -28,6 +28,8 @@
 (define-constant ERR-INSUFFICIENT-COLLATERAL (err u101))
 (define-constant ERR-BELOW-LIQUIDATION (err u102))
 (define-constant ERR-VAULT-NOT-FOUND (err u103))
+(define-constant ERR-WITHDRAWAL-EXCEEDS-AVAILABLE (err u104))
+(define-constant ERR-BELOW-MINIMUM-COLLATERAL (err u105))
 
 ;; Read-Only Functions
 (define-read-only (get-vault (owner principal))
@@ -44,6 +46,19 @@
         (ok u0)
         (ok (/ (* collateral-value u100) debt-value))
     ))
+)
+
+(define-read-only (get-withdrawable-collateral (owner principal))
+    (let (
+        (vault (unwrap! (get-vault owner) ERR-VAULT-NOT-FOUND))
+        (collateral-amount (get collateral-amount vault))
+        (debt-amount (get debt-amount vault))
+        (collateral-value (* collateral-amount (var-get price-oracle)))
+        (minimum-required-collateral (/ (* debt-amount COLLATERAL-RATIO) (var-get price-oracle)))
+    )
+    (if (is-eq debt-amount u0)
+        (ok collateral-amount)
+        (ok (- collateral-amount minimum-required-collateral))))
 )
 
 ;; Public Functions
@@ -85,6 +100,32 @@
         }
     )
     (var-set total-supply (+ (var-get total-supply) amount))
+    (ok true))
+)
+
+(define-public (withdraw-collateral (amount uint))
+    (let (
+        (sender tx-sender)
+        (vault (unwrap! (get-vault sender) ERR-VAULT-NOT-FOUND))
+        (current-collateral (get collateral-amount vault))
+        (current-debt (get debt-amount vault))
+        (withdrawable (unwrap! (get-withdrawable-collateral sender) ERR-VAULT-NOT-FOUND))
+    )
+    ;; Check withdrawal amount is valid
+    (asserts! (<= amount withdrawable) ERR-WITHDRAWAL-EXCEEDS-AVAILABLE)
+    
+    ;; Check remaining collateral meets minimum requirement
+    (asserts! (>= (- current-collateral amount) MINIMUM-COLLATERAL) ERR-BELOW-MINIMUM-COLLATERAL)
+    
+    ;; Update vault
+    (map-set vaults
+        sender
+        {
+            collateral-amount: (- current-collateral amount),
+            debt-amount: current-debt,
+            last-update: block-height
+        }
+    )
     (ok true))
 )
 
