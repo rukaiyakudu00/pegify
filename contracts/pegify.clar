@@ -1,6 +1,6 @@
 ;; Pegify: Bitcoin-backed Stablecoin Platform
 ;; Author: Pegify Team
-;; Version: 1.0.1
+;; Version: 1.0.2
 
 ;; Constants
 (define-constant CONTRACT-OWNER tx-sender)
@@ -8,6 +8,8 @@
 (define-constant LIQUIDATION-RATIO u120) ;; 120% liquidation threshold
 (define-constant MINIMUM-COLLATERAL u100000) ;; Minimum collateral in sats
 (define-constant STABILITY-FEE u5) ;; 0.5% annual stability fee
+(define-constant MAX-UINT u340282366920938463463374607431768211455) ;; Maximum uint value
+(define-constant MAX-PRICE u1000000000) ;; Maximum price (10,000 USD per sat)
 
 ;; Data Variables
 (define-data-var total-supply uint u0)
@@ -30,6 +32,8 @@
 (define-constant ERR-VAULT-NOT-FOUND (err u103))
 (define-constant ERR-WITHDRAWAL-EXCEEDS-AVAILABLE (err u104))
 (define-constant ERR-BELOW-MINIMUM-COLLATERAL (err u105))
+(define-constant ERR-INVALID-AMOUNT (err u106))
+(define-constant ERR-INVALID-PRICE (err u107))
 
 ;; Read-Only Functions
 (define-read-only (get-vault (owner principal))
@@ -89,6 +93,8 @@
         (collateral-value (* (get collateral-amount vault) (var-get price-oracle)))
         (new-ratio (/ (* collateral-value u100) new-debt))
     )
+    (asserts! (> amount u0) ERR-INVALID-AMOUNT)
+    (asserts! (<= (+ (var-get total-supply) amount) MAX-UINT) ERR-INVALID-AMOUNT)
     (asserts! (>= new-ratio COLLATERAL-RATIO) ERR-INSUFFICIENT-COLLATERAL)
     
     (map-set vaults
@@ -166,6 +172,7 @@
 (define-public (update-price-oracle (new-price uint))
     (begin
         (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
+        (asserts! (and (> new-price u0) (<= new-price MAX-PRICE)) ERR-INVALID-PRICE)
         (var-set price-oracle new-price)
         (ok true))
 )
